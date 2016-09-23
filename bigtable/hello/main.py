@@ -25,8 +25,10 @@ Prerequisites:
 """
 
 import argparse
+import datetime
 
 from gcloud import bigtable
+from gcloud.bigtable import row_filters
 
 
 def main(project_id, instance_id, table_id):
@@ -40,6 +42,11 @@ def main(project_id, instance_id, table_id):
         # [START creating_a_table]
         print('Creating the {} table.'.format(table_id))
         table = instance.table(table_id)
+        try:
+            table.delete()
+        except Exception:
+          pass
+
         table.create()
         column_family_id = 'cf1'
         cf1 = table.column_family(column_family_id)
@@ -73,14 +80,26 @@ def main(project_id, instance_id, table_id):
                 column_id,
                 value.encode('utf-8'))
             row.commit()
+
+            # Now commit an older version
+            row = table.row(row_key)
+            myts = datetime.datetime.utcfromtimestamp(200.0 / 1000000)
+            row.set_cell(
+                column_family_id, column_id, value.encode('utf-8'), timestamp=myts)
+            row.commit()
         # [END writing_rows]
 
         # [START getting_a_row]
         print('Getting a single greeting by row key.')
         key = 'greeting0'
-        row = table.read_row(key.encode('utf-8'))
+        col_filter = row_filters.ColumnQualifierRegexFilter(column_id)
+        family_filter = row_filters.FamilyNameRegexFilter(column_family_id)
+        row_filter = row_filters.RowFilterUnion(filters=[col_filter, family_filter])
+        row = table.read_row(key.encode('utf-8'), filter_=row_filter)
         value = row.cells[column_family_id][column_id][0].value
-        print('\t{}: {}'.format(key, value.decode('utf-8')))
+        timestamp = row.cells[column_family_id][column_id][0].timestamp
+        print('\t{}: {} {}'.format(key, value.decode('utf-8'), timestamp))
+
         # [END getting_a_row]
 
         # [START scanning_all_rows]
